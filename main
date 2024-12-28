@@ -1,0 +1,271 @@
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.std_logic_unsigned.all;
+
+entity tanshishe is
+	port(
+		clk,clear:in std_logic;   --时钟、复位/开始开关
+		key:in std_logic_vector(3 downto 0);  --方向控制键
+		seven:out std_logic_vector(6 downto 0);  --七位数码管的7根二极管
+		cat:out std_logic_vector(5 downto 0);    --控制数码管显示
+		row,col:out std_logic_vector(7 downto 0));  --点阵行、列坐标
+end tanshishe;
+   
+architecture game of tanshishe is
+	signal setrat,over:std_logic; --重设老鼠、游戏结束信号
+	signal ratr,ratc,rat:integer range 0 to 7;  --老鼠行、列坐标
+	signal t: std_logic_vector(2 downto 0);
+	signal rattime:integer range 0 to 4;    --老鼠出现时间
+	type dots is array (integer range <>) of integer range 0 to 7;  
+	signal snaker,snakec:dots(3 downto 0);   --蛇行、列坐标
+	constant wallr:dots(3 downto 0):=(6,5,4,3);--墙的行坐标（常数）
+	constant wallc:dots(3 downto 0):=(4,4,4,4);--强的列坐标（常数）
+	signal clk1,clk2,clk3: std_logic;--clk1:1秒  clk2:500hz时钟
+    signal tmp1:integer range 0 to 49999999; --分频1
+    signal tmp2:integer range 0 to 99999; --分频2
+    signal tmp3:integer range 0 to 49; --分频3
+	signal dir:std_logic_vector(1 downto 0); --保存下一时刻方向
+	signal direction:integer range 0 to 3;  --当前蛇方向:0->上,1->下,2->左,3->右
+	signal point:integer range 0 to 8;  --当前点阵上显示的点
+	type figure is array (integer range <>) of integer range 0 to 9;
+	signal shownum:figure(3 downto 0);    --shownum(3)和shownum(2)分别为得分的高位和地位，shownum(1)和shownum(0)分别为剩余时间的高位和地位
+
+begin     
+	p1:process(clk,over,clear)   --分频同时保存下一时刻蛇的移动方向
+	begin
+		if clear='1' then
+			dir<="00";tmp1<=0;tmp2<=0;
+		elsif clk'event and clk='1'  then
+		    if (tmp2=99999) then 
+                tmp2<=0;clk2<='1';
+            else
+                tmp2<=tmp2+1;
+                clk2<='0';
+            end if;
+            if over/='1' then
+			   if (tmp1=49999999) then 
+                   tmp1<=0;clk1<='1';
+               else
+                   tmp1<=tmp1+1;
+                   clk1<='0';
+               end if;
+               if (tmp3=49) then 
+                   tmp3<=0;clk3<='1';
+               else
+                   tmp3<=tmp3+1;
+                   clk3<='0';
+               end if;
+           
+			    case key is
+			  	when "1000"=> dir<="00";
+				when "0100"=> dir<="01";
+				when "0010"=> dir<="10";
+				when "0001"=> dir<="11";
+				when others=> null;
+			    end case;
+			end if;		
+		end if;
+	end process;
+   
+	p2:process(clear,clk3,over)  --点阵显示模块
+	begin
+		if clear='1' then
+		    row<="11111111";
+			col<="00000000";
+			point<=0;
+		else
+		  if (over='1')then--游戏结束
+               col<="11111111";
+               row<="00000000";
+           else
+		    if clk3'event and clk3='1' then
+			          col<="00000000";
+			          row<="11111111";
+			    if point=8 then
+		                point<=0;
+		           else point<=point+1;
+		        end if;
+			    case point is
+				when 0|1|2|3=> row(snaker(point))<='0';
+							   col(snakec(point))<='1';
+				when 4=> row(ratr)<='0';
+                         col(ratc)<='1';
+				when 5|6|7|8=> row(wallr(point-5))<='0';
+                         col(wallc(point-5))<='1';
+				when others=>col<="00000000";row<="11111111";
+			    end case;
+		      end if;
+		   end if;
+		 end if;
+	end process;
+	
+	p3:process(clear,clk1,shownum(0),dir)  --控制模块
+	variable ratr1,ratc1:integer range 0 to 7;
+	begin
+	if clear='1' then             --复位
+			snaker<=(3,2,1,0);
+			snakec<=(1,1,1,1);
+			direction<=0;
+			over<='0';
+			shownum(3)<=0;
+			shownum(2)<=0;
+			shownum(1)<=5;
+			shownum(0)<=9;
+			setrat<='1';
+		else
+			if clk1'event and clk1='1' then
+			    if rattime=4 then rattime<=0; --老鼠出现时间
+				   else rattime<=rattime+1;  
+			    end if;          
+				if shownum(0)=0 then            --剩余时间
+					shownum(0)<=9;
+					shownum(1)<=shownum(1)-1;
+				else
+					shownum(0)<=shownum(0)-1;
+				end if;
+				for i in 0 to 2 loop   --the snake moves  --蛇的步进
+					snaker(i)<=snaker(i+1);
+					snakec(i)<=snakec(i+1);
+				end loop;
+				case dir is
+				when "00"=> if snaker(3)=7 then--向上出界游戏结束
+								over<='1';
+							elsif direction/=1 then--蛇头向上步进(蛇头方向不和输入值相反时)
+								snaker(3)<=snaker(3)+1;
+								snakec(3)<=snakec(3);
+								direction<=0;
+							else
+								if snaker(3)=0 then--蛇头方向和输入值相反,若蛇头向下出界,游戏结束
+									over<='1';
+								else
+									snaker(3)<=snaker(3)-1;--蛇头向下未出界,向下步进
+									snakec(3)<=snakec(3);
+								end if;
+							end if;
+				when "01"=> if snaker(3)=0 then--若蛇头向下出界,游戏结束
+								over<='1';
+							elsif direction/=0 then--蛇头方向不和输入值相反,向下步进
+								snaker(3)<=snaker(3)-1;
+								snakec(3)<=snakec(3);
+								direction<=1;
+							elsif snaker(3)=7 then--蛇头方向和输入值相反,若蛇头向上出界游戏结束
+								over<='1';
+							else
+								snaker(3)<=snaker(3)+1;--蛇头向上未出界，向上步进
+								snakec(3)<=snakec(3);
+							end if;
+				when "10"=> if snakec(3)=0 then--左
+								over<='1';
+							elsif direction/=3 then
+								snakec(3)<=snakec(3)-1;
+								snaker(3)<=snaker(3);
+								direction<=2;
+							elsif snakec(3)=7 then
+								over<='1';
+							else
+								snakec(3)<=snakec(3)+1;
+								snaker(3)<=snaker(3);
+							end if;  
+				when "11"=> if snakec(3)=7 then--右
+								over<='1';
+							elsif direction/=2 then
+								snakec(3)<=snakec(3)+1;
+								snaker(3)<=snaker(3);
+								direction<=3;
+							elsif snakec(3)=0 then
+								over<='1';
+							else
+								snakec(3)<=snakec(3)-1;
+								snaker(3)<=snaker(3);
+							end if; 
+				end case;
+				if setrat='1' then      --重设老鼠位置
+					  ratr1:=rat;
+					  ratc1:=rat+2;
+					  for i in 0 to 3 loop
+						 if ratr1=wallr(i) and ratc1=wallc(i) then
+							ratr1:=ratr1+1;
+							ratc1:=ratc1+1;
+							exit;
+						 end if;
+					  end loop;
+					  ratr<=ratr1;
+					  ratc<=ratc1;
+					  rattime<=0;
+					  setrat<='0';
+				  
+				 end if;
+                if (shownum(1)=0 and shownum(0)=0) then      --游戏时间到
+					       over<='1';
+                   else 
+			           if rattime=4  then    setrat<='1';   --重设老鼠位置
+					   end if;
+					   if snaker(3)=ratr and snakec(3)=ratc then  --吃到老鼠
+					        setrat<='1';
+					        if shownum(2)=9 then--加一分
+						         shownum(2)<=0;
+						         shownum(3)<=shownum(3)+1;
+					          else
+						         shownum(2)<=shownum(2)+1;
+					         end if;
+					      else
+					          for i in 0 to 3 loop
+						          if snaker(3)=wallr(i) and snakec(3)=wallc(i) then      --蛇撞墙
+							             over<='1';
+							             exit;
+						          end if;
+					          end loop;
+                       end if;
+                 end if;	
+			end if;
+	end if;
+	end process;
+      
+	p4:process(clear,clk2)  --在数码管上显示得分和剩余时间
+	variable state:integer range 0 to 3:=0;
+	begin
+		if clear='1' then cat<="111111";
+		elsif clk2'event and clk2='1' then
+			state:=state+1;
+			case state is
+				when 3=>cat<="011111";
+				when 2=>cat<="101111";
+				when 1=>cat<="111101";
+				when 0=>cat<="111110";
+			end case;
+			case shownum(state) is
+				when 0=>seven<="1111110";
+				when 1=>seven<="0110000";
+				when 2=>seven<="1101101";
+				when 3=>seven<="1111001";
+				when 4=>seven<="0110011";
+				when 5=>seven<="1011011";
+				when 6=>seven<="1011111";
+				when 7=>seven<="1110000";
+				when 8=>seven<="1111111";
+				when 9=>seven<="1111011";
+				when others=>seven<="0000000";
+			end case;
+		end if;
+	end process;  
+	p5:process(clk1,t)  --Mxulie
+    begin
+       if t="000" then t<="001";
+       elsif clk1'event and clk1='1' then
+            t(0)<=t(0) xor t(2);
+            t(1)<=t(0);
+            t(2)<=t(1);
+       end if;
+       case t is
+        when"000"=>rat<=0;
+        when"001"=>rat<=1;
+        when"010"=>rat<=2;
+        when"011"=>rat<=3;
+        when"100"=>rat<=4;
+        when"101"=>rat<=5;
+        when"110"=>rat<=6;
+        when"111"=>rat<=7;
+       end case;
+     end process;
+ 
+end game;
